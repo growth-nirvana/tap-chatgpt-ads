@@ -1,0 +1,151 @@
+[build-system]
+requires = [
+    "hatchling>=1,<2",
+    "hatch-vcs>=0.5",
+]
+build-backend = "hatchling.build"
+
+[project]
+name = "tap-chatgpt-ads"
+dynamic = ["version"]
+description = "Singer tap for the ChatGPT Ads API, built with the Meltano Singer SDK."
+readme = "README.md"
+authors = [{ name = "Jesse Ocon", email = "jesse.ocon@growthnirvana.com" }]
+keywords = [
+    "ELT",
+    "ChatGPT Ads",
+]
+classifiers = [
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Programming Language :: Python :: 3.15",
+]
+license = "Apache-2.0"
+license-files = [ "LICENSE" ]
+requires-python = ">=3.10"
+dependencies = [
+    "singer-sdk[faker]~=0.54.9",
+    "requests~=2.34.0",
+    "typing-extensions>=4.5.0; python_version < '3.13'",
+]
+
+[project.optional-dependencies]
+s3 = [
+    "s3fs>=2026.1.0",
+]
+
+[project.scripts]
+# CLI declaration
+tap-chatgpt-ads = 'tap_chatgpt_ads.tap:TapChatGPTAds.cli'
+
+[dependency-groups]
+dev = [
+    { include-group = "test" },
+]
+test = [
+    "pytest>=9",
+    "pytest-github-actions-annotate-failures>=0.4",
+    "singer-sdk[testing]",
+]
+typing = [
+    "mypy>=2.1",
+    "ty>=0.0.41",
+]
+
+[tool.hatch.version]
+fallback-version = "0.1.0.dev0"
+source = "vcs"
+
+[tool.mypy]
+enable_error_code = [
+    "ignore-without-code",
+    "redundant-expr",
+    "truthy-bool",
+]
+warn_redundant_casts = true
+warn_unreachable = true
+warn_unused_configs = true
+warn_unused_ignores = true
+
+[tool.ty.rules]
+missing-override-decorator = "error"
+unused-type-ignore-comment = "ignore"
+
+[tool.pytest]
+addopts = [
+    "-ra",
+]
+filterwarnings = [
+    "error",
+    "once:No records were available to test:UserWarning",
+    "once:Fields in transformed catalog but not in records:UserWarning",
+    "once:Python 3.* its end of life:FutureWarning",
+]
+log_level = "INFO"
+minversion = "9"
+strict = true
+testpaths = [
+    "tests",
+]
+
+[tool.ruff]
+line-length = 100
+preview = true
+required-version = ">=0.16.0"
+
+[tool.ruff.lint]
+future-annotations = true
+ignore = [
+    "missing-trailing-comma",
+    "missing-copyright-notice",
+]
+select = ["ALL"]
+
+[tool.ruff.lint.flake8-annotations]
+allow-star-arg-any = true
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = [
+  "assert",
+  "undocumented-public-function",
+  "magic-value-comparison",
+  "no-self-use",
+]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+# This configuration can be used to customize tox environments
+[tool.tox]
+requires = [
+    "tox>=4.53",
+    "tox-uv>=1.35",
+]
+env_list = [
+    "typing",
+    { prefix = "3.", start = 10 },
+]
+
+[tool.tox.env_run_base]
+description = "run tests on Python {env_name}"
+runner = "uv-venv-lock-runner"
+pass_env = [
+    "CI",
+    "GITHUB_*",
+    "TAP_CHATGPT_ADS_*",
+]
+dependency_groups = [ "test" ]
+commands = [ [ "pytest", { replace = "posargs", default = [ "tests" ], extend = true } ] ]
+
+[tool.tox.env.typing]
+description = "type checks"
+dependency_groups = [ "test", "typing" ]
+commands = [
+    [ "mypy", { replace = "posargs", default = [ "tap_chatgpt_ads", "tests" ], extend = true } ],
+    [ "ty", "check", { replace = "posargs", default = [ "tap_chatgpt_ads", "tests" ], extend = true } ],
+]

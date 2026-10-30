@@ -1,0 +1,74 @@
+send_anonymous_usage_stats: true
+project_id: "tap-chatgpt-ads"
+default_environment: test
+requires_meltano: ">=4.0"
+environments:
+- name: test
+plugins:
+  extractors:
+  - name: "tap-chatgpt-ads"
+    namespace: "tap_chatgpt_ads"
+    pip_url: -e .
+    capabilities:
+    - state
+    - catalog
+    - discover
+    - about
+    - stream-maps
+    - structured-logging
+    settings:
+    - name: api_key
+      kind: password
+      label: API Key
+      description: Ad account-scoped ChatGPT Ads Advertiser API key
+      sensitive: true
+    - name: start_date
+      kind: date_iso8601
+      label: Start Date
+      description: Earliest reporting date to extract
+    - name: lookback_days
+      kind: integer
+      label: Lookback Days
+      description: Days before the bookmark to restate delayed spend and conversions
+      value: 7
+    - name: chunk_days
+      kind: integer
+      label: Chunk Days
+      description: Days per Insights request. Conversion metrics allow at most 365.
+      value: 31
+    - name: timezone
+      label: Timezone
+      description: IANA timezone for reporting dates. Defaults to the ad account timezone.
+    - name: attribution_window_days
+      kind: integer
+      label: Click Attribution Window
+      description: Click window in days. Allowed values are 7, 14, and 30.
+      value: 30
+    - name: view_through_attribution_window_days
+      kind: integer
+      label: View Attribution Window
+      description: View window in days. Use 0 to exclude view-through conversions, or 1.
+      value: 1
+    - name: include_zero_impression_items
+      kind: boolean
+      label: Include Zero Impressions
+      description: Include ads with zero impressions in the requested window
+      value: true
+    - name: user_agent
+      label: User Agent
+      description: Optional User-Agent header
+    settings_group_validation:
+    - [api_key]
+    config:
+      start_date: '2026-01-01'
+      lookback_days: 7
+      chunk_days: 31
+      attribution_window_days: 30
+      view_through_attribution_window_days: 1
+      include_zero_impression_items: true
+    select:
+    - ad_performance.*
+  loaders:
+  - name: target-jsonl
+    variant: andyh1203
+    pip_url: target-jsonl
