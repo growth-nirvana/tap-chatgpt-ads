@@ -1,13 +1,12 @@
 [build-system]
 requires = [
     "hatchling>=1,<2",
-    "hatch-vcs>=0.5",
 ]
 build-backend = "hatchling.build"
 
 [project]
 name = "tap-chatgpt-ads"
-dynamic = ["version"]
+version = "0.1.0"
 description = "Singer tap for the ChatGPT Ads API, built with the Meltano Singer SDK."
 readme = "README.md"
 authors = [{ name = "Jesse Ocon", email = "jesse.ocon@growthnirvana.com" }]
@@ -56,10 +55,6 @@ typing = [
     "mypy>=2.1",
     "ty>=0.0.41",
 ]
-
-[tool.hatch.version]
-fallback-version = "0.1.0.dev0"
-source = "vcs"
 
 [tool.mypy]
 enable_error_code = [
