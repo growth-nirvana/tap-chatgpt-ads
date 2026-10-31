@@ -68,6 +68,7 @@ plugins:
       include_zero_impression_items: true
     select:
     - ad_performance.*
+    - ad_conversion_events.*
   loaders:
   - name: target-jsonl
     variant: andyh1203

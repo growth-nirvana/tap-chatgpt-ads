@@ -2,7 +2,10 @@
 
 Singer tap for the [ChatGPT Ads API](https://developers.openai.com/ads), built with the [Meltano Singer SDK](https://sdk.meltano.com).
 
-The tap extracts one stream, `ad_performance`: one row per ad per day.
+The tap extracts two streams:
+
+- `ad_performance`: one row per ad per day.
+- `ad_conversion_events`: one row per ad, date, and conversion event. Join it to `ad_performance` on `ad_id` and `date`. `event_name` is the API event, in the same role as a Google Ads conversion action name.
 
 ## Grain and metrics
 
@@ -38,6 +41,7 @@ uv sync
 | `attribution_window_days` | No | `30` | Click window: `7`, `14`, or `30`. |
 | `view_through_attribution_window_days` | No | `1` | View window: `0` or `1`. |
 | `include_zero_impression_items` | No | `true` | Include ads with no impressions. |
+| `conversion_events` | No | all events | Optional list of `{"name", "base_event"}` objects. `base_event` is the API name (`contents_viewed`). `name` is the report label (`VDP Views`). Omit to extract every event the account returns. |
 | `user_agent` | No | SDK default | Optional User-Agent header. |
 
 Copy `.env.example` to `.env` or pass a config file:

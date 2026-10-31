@@ -3,14 +3,23 @@
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
 
 # Conversion metrics must cover full days and at most 365 days per request.
 MAX_INSIGHTS_WINDOW_DAYS = 365
 DEFAULT_LOOKBACK_DAYS = 7
 DEFAULT_CHUNK_DAYS = 31
+CONVERSION_ENTITY_BATCH = 100
+_UNRECOGNIZED_EVENTS = re.compile(
+    r"events not recognized for this ad account: ([^.]+)",
+    re.IGNORECASE,
+)
 
 INSIGHT_FIELDS: tuple[str, ...] = (
     "metadata.readable_time",
@@ -213,3 +222,190 @@ def normalize_insight_row(
         "currency_code": account.get("currency_code"),
         "timezone": row.get("timezone") or account.get("timezone"),
     }
+
+
+@dataclass(frozen=True)
+class ConversionEventsQuery:
+    """Parameters for one daily ad conversion-event request."""
+
+    since: date
+    until: date
+    timezone: str | None
+    attribution_window_days: int
+    view_through_attribution_window_days: int
+    entity_ids: tuple[str, ...]
+    event_names: tuple[str, ...] | None = None
+
+
+def conversion_event_selection(
+    value: object,
+) -> tuple[tuple[str, ...] | None, dict[str, str]]:
+    """Read optional conversion event config.
+
+    Args:
+        value: ``conversion_events`` from tap config.
+
+    Returns:
+        API event names to request, or None for every event, and a map of
+        API event name to the configured report label.
+    """
+    if not isinstance(value, list) or not value:
+        return None, {}
+    names: list[str] = []
+    labels: dict[str, str] = {}
+    for item in value:
+        if isinstance(item, str) and item.strip():
+            names.append(item.strip())
+            continue
+        if not isinstance(item, dict):
+            continue
+        base_event = item.get("base_event") or item.get("event_name") or item.get("name")
+        if not base_event or not str(base_event).strip():
+            continue
+        event_name = str(base_event).strip()
+        names.append(event_name)
+        label = item.get("name")
+        if label and str(label).strip() and str(label).strip() != event_name:
+            labels[event_name] = str(label).strip()
+    unique = tuple(dict.fromkeys(names))
+    return (unique or None), labels
+
+
+def unrecognized_event_names(message: str) -> tuple[str, ...]:
+    """Return event names the API rejected as unrecognized.
+
+    Args:
+        message: Error message from ``POST /conversions/insights``.
+
+    Returns:
+        Names listed in the error, in order.
+    """
+    match = _UNRECOGNIZED_EVENTS.search(message)
+    if match is None:
+        return ()
+    return tuple(part.strip() for part in match.group(1).split(",") if part.strip())
+
+
+def conversion_request_body(query: ConversionEventsQuery) -> dict[str, Any]:
+    """Build the body for ``POST /v1/conversions/insights``.
+
+    Args:
+        query: Window, ads, attribution, and optional event names.
+
+    Returns:
+        JSON body. ``entity_id`` on each daily row is the ad id.
+    """
+    body: dict[str, Any] = {
+        "aggregation_level": "ad",
+        "time_granularity": "daily",
+        "time_ranges": [date_range_param(query.since, query.until, query.timezone)],
+        "entity_ids": list(query.entity_ids),
+        "attribution_time_basis": "ad_event_time",
+        "attribution_window_days": query.attribution_window_days,
+        "view_through_attribution_window_days": query.view_through_attribution_window_days,
+        "include": ["attributed_events"],
+        "include_zero_rows": False,
+    }
+    if query.event_names:
+        body["event_names"] = list(query.event_names)
+    return body
+
+
+def iter_entity_batches(
+    entity_ids: list[str],
+    batch_size: int = CONVERSION_ENTITY_BATCH,
+) -> Iterator[tuple[str, ...]]:
+    """Split ad ids into request-sized batches.
+
+    Args:
+        entity_ids: Ad ids to report.
+        batch_size: Maximum ids per conversions request.
+
+    Yields:
+        Non-empty id batches.
+    """
+    size = max(batch_size, 1)
+    for start in range(0, len(entity_ids), size):
+        yield tuple(entity_ids[start : start + size])
+
+
+def _optional_number(value: object) -> float | None:
+    """Return a float, or None when the API omitted the amount.
+
+    Args:
+        value: API amount, which may be a number, a numeric string, or null.
+
+    Returns:
+        The amount, or None when it was omitted.
+    """
+    if value is None or (isinstance(value, str) and not value.strip()):
+        return None
+    if isinstance(value, bool) or not isinstance(value, (int, float, str)):
+        return None
+    return float(value)
+
+
+def iter_conversion_event_records(
+    payload: dict[str, Any],
+    *,
+    account: dict[str, Any],
+    ads_by_id: dict[str, dict[str, Any]],
+    labels: dict[str, str],
+) -> Iterator[dict[str, Any]]:
+    """Flatten conversion insight rows to one record per ad, date, and event.
+
+    Args:
+        payload: JSON body from ``POST /conversions/insights``.
+        account: Payload from ``GET /ad_account``.
+        ads_by_id: Ad id to parent campaign and ad group attributes.
+        labels: Optional report labels keyed by API event name.
+
+    Yields:
+        Records that can be joined to ``ad_performance`` on ``ad_id`` and ``date``.
+    """
+    data = payload.get("data") or []
+    if not isinstance(data, list):
+        return
+    for row in data:
+        if not isinstance(row, dict):
+            continue
+        ad_id = row.get("entity_id")
+        raw_date = row.get("date")
+        if not ad_id or not raw_date:
+            continue
+        parent = ads_by_id.get(str(ad_id), {})
+        events = row.get("attributed_events") or []
+        if not isinstance(events, list):
+            continue
+        for event in events:
+            if not isinstance(event, dict):
+                continue
+            event_name = event.get("event_name")
+            if not event_name:
+                continue
+            count = event.get("attributed_event_count")
+            value = _optional_number(event.get("attributed_event_value_amount"))
+            if not count and value is None:
+                continue
+            yield {
+                "ad_account_id": account.get("id"),
+                "ad_account_name": account.get("account_name") or account.get("name"),
+                "campaign_id": parent.get("campaign_id"),
+                "campaign_name": parent.get("campaign_name"),
+                "ad_group_id": parent.get("ad_group_id"),
+                "ad_group_name": parent.get("ad_group_name"),
+                "ad_id": str(ad_id),
+                "ad_name": parent.get("ad_name"),
+                "date": str(raw_date)[:10],
+                "event_name": str(event_name),
+                "event_label": labels.get(str(event_name), str(event_name)),
+                "event_kind": event.get("event_kind"),
+                "event_count": count,
+                "event_value": value,
+                "event_value_count": event.get("attributed_event_value_count"),
+                "currency_code": (
+                    event.get("attributed_event_value_currency") or account.get("currency_code")
+                ),
+                "click_through_conversions": event.get("click_through_conversions"),
+                "view_through_conversions": event.get("view_through_conversions"),
+            }

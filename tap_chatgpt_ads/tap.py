@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import sys
 
-from singer_sdk import Tap
+from singer_sdk import Stream, Tap
 from singer_sdk import typing as th
 
 from tap_chatgpt_ads import streams
@@ -85,16 +85,40 @@ class TapChatGPTAds(Tap):
             default="https://api.ads.openai.com/v1",
             description="ChatGPT Ads API root.",
         ),
+        th.Property(
+            "conversion_events",
+            th.ArrayType(
+                th.ObjectType(
+                    th.Property(
+                        "name",
+                        th.StringType,
+                        description="Report label, such as VDP Views.",
+                    ),
+                    th.Property(
+                        "base_event",
+                        th.StringType,
+                        description="API event name, such as contents_viewed.",
+                    ),
+                )
+            ),
+            description=(
+                "Optional events for ad_conversion_events. Omit to sync every "
+                "event the account returns. base_event must be the API name."
+            ),
+        ),
     ).to_dict()
 
     @override
-    def discover_streams(self) -> list[streams.AdPerformanceStream]:
+    def discover_streams(self) -> list[Stream]:
         """Return discovered streams.
 
         Returns:
-            The ad performance stream.
+            Ad performance and ad conversion events.
         """
-        return [streams.AdPerformanceStream(self)]
+        return [
+            streams.AdPerformanceStream(self),
+            streams.AdConversionEventsStream(self),
+        ]
 
 
 if __name__ == "__main__":

@@ -6,7 +6,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "tap-chatgpt-ads"
-version = "0.1.0"
+version = "0.2.0"
 description = "Singer tap for the ChatGPT Ads API, built with the Meltano Singer SDK."
 readme = "README.md"
 authors = [{ name = "Jesse Ocon", email = "jesse.ocon@growthnirvana.com" }]

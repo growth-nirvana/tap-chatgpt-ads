@@ -12,4 +12,7 @@ SAMPLE_CONFIG = {
 
 def test_discover_streams_exposes_ad_performance() -> None:
     tap = TapChatGPTAds(config=SAMPLE_CONFIG, validate_config=False)
-    assert [stream.name for stream in tap.discover_streams()] == ["ad_performance"]
+    assert [stream.name for stream in tap.discover_streams()] == [
+        "ad_performance",
+        "ad_conversion_events",
+    ]

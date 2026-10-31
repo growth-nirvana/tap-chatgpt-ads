@@ -101,13 +101,9 @@ class ChatGPTAdsStream(RESTStream[str | None]):
             TypeError: If the response body is not a JSON object.
         """
         url = urljoin(f"{self.url_base}/", path)
-        headers = dict(self.http_headers)
-        authenticator = self.authenticator
-        if authenticator is not None:
-            headers.update(authenticator.auth_headers or {})
         response = self.requests_session.get(
             url,
-            headers=headers,
+            headers=self._authorized_headers(),
             params=params,
             timeout=self.timeout,
         )
@@ -117,6 +113,69 @@ class ChatGPTAdsStream(RESTStream[str | None]):
             message = f"Expected a JSON object from {path}"
             raise TypeError(message)
         return payload
+
+    def _authorized_headers(self) -> dict[str, str]:
+        """Headers for an authenticated API request.
+
+        Returns:
+            Request headers, including the bearer token when configured.
+        """
+        headers = dict(self.http_headers)
+        authenticator = self.authenticator
+        if authenticator is not None:
+            headers.update(authenticator.auth_headers or {})
+        return headers
+
+    def post_response(self, path: str, body: dict[str, Any]) -> requests.Response:
+        """POST a JSON body and return the raw response.
+
+        Callers inspect 400 and 413 before ``validate_response``.
+
+        Args:
+            path: Path under the API root, without a leading slash.
+            body: JSON request body.
+
+        Returns:
+            The HTTP response.
+        """
+        url = urljoin(f"{self.url_base}/", path)
+        headers = self._authorized_headers()
+        headers["Content-Type"] = "application/json"
+        return self.requests_session.post(
+            url,
+            headers=headers,
+            json=body,
+            timeout=self.timeout,
+        )
+
+    def load_ads_by_id(self) -> dict[str, dict[str, Any]]:
+        """List campaigns, ad groups, and ads for parent attributes.
+
+        Returns:
+            Mapping of ad id to campaign and ad group names and ids.
+        """
+        ads_by_id: dict[str, dict[str, Any]] = {}
+        for campaign in self.paginate_list("campaigns"):
+            campaign_id = campaign.get("id")
+            if not campaign_id:
+                continue
+            for ad_group in self.paginate_list("ad_groups", {"campaign_id": campaign_id}):
+                ad_group_id = ad_group.get("id")
+                if not ad_group_id:
+                    continue
+                for ad in self.paginate_list("ads", {"ad_group_id": ad_group_id}):
+                    ad_id = ad.get("id")
+                    if not ad_id:
+                        continue
+                    ads_by_id[str(ad_id)] = {
+                        "campaign_id": str(campaign_id),
+                        "campaign_name": campaign.get("name"),
+                        "ad_group_id": str(ad_group_id),
+                        "ad_group_name": ad_group.get("name"),
+                        "ad_name": ad.get("name"),
+                    }
+        self.logger.info("Loaded %s ads for hierarchy enrichment", len(ads_by_id))
+        return ads_by_id
 
     def paginate_list(
         self,
